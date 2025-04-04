@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microsoft Graph Team Members Email List Parser</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.10.2/cdn.min.js" defer></script>
+    <style>
+        body { margin: 20px; max-width: 800px; margin-left: auto; margin-right: auto; padding: 0 20px; font-family: Arial, sans-serif; line-height: 1.6;}
+        h1, h2 { color: #333; }
+        button { padding: 10px; background-color: #007bff; color: white; border: none; cursor: pointer; 
+                 display: block; margin-bottom: 10px; margin-top: 10px}
+        button:hover { background-color: #0056b3; }
+        .btn-inline { display: inline-block;}
+        textarea { width: 100%; margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .instructions {background-color: #dbdbdb}
+        .big-textarea {height: 200px;}
+    </style>
+</head>
+<body x-data="teamsParser()">
+    <h1>Microsoft Graph Team Members Email List Parser</h1>
+
+    <div>
+        <h2>Step 1: Parse Team Link</h2>
+        <button @click="toggleInstructions('step1')">Show/Hide Instructions</button>
+        <div x-show="showInstructions.step1" class="instructions">
+            <h3>Instructions:</h3>
+            <ol>
+                <li>In Microsoft Teams, find the Team that you want to work with. However over the Team name, and click the ... button to show a dropdown list.</li>
+                <li>Choose "Get link to team", and copy that link. Paste it below.<br/>
+                    <img src="team_link_screenshot.png" alt="A screenshot of the Microsoft Teams application, showing how to copy a link to a Team." height='200px'></img>
+                </li>
+            </ol>
+        </div>
+        <textarea x-model="teamLink" placeholder="Paste Microsoft Teams link here"></textarea>
+        <button @click="parseTeamLink">Parse Team Link</button>
+        <div x-show="graphApiUrl">
+            <h3>Graph API URL:</h3>
+            <p x-text="graphApiUrl"></p>
+        </div>
+    </div>
+
+    <div>
+        <h2>Step 2: Get Microsoft Graph API JSON Output</h2>
+        <button @click="toggleInstructions('step2')">Show/Hide Instructions</button>
+        <div x-show="showInstructions.step2" class="instructions">
+            <h3>Instructions:</h3>
+            <ol>
+                <li>Go to <a target='_blank' href='https://developer.microsoft.com/en-us/graph/graph-explorer'>https://developer.microsoft.com/en-us/graph/graph-explorer</a> and make sure you are logged in with your Smithsonian ID.</li>
+                <li>Now paste in the Graph API URL above into the Query box, and click Run Query.<br/><img src="graph_explorer_query.png" alt="A screenshot of the Microsoft Graph Explorer website." height='100px'></img></li>
+                <li>Now go down to the Response Preview, copy the entire section of text in there, and paste it into the box below.<br/><img src="graph_explorer_results.png" alt="A screenshot of the Microsoft Graph Explorer website." height='200px'></img></li>
+            </ol>
+        </div>
+        <textarea x-model="jsonInput" placeholder="Paste JSON response here" class="big-textarea"></textarea>
+        <button @click="parseJson">Parse JSON</button>
+    </div>
+
+    <div x-show="parsedData.length > 0">
+        <h2>Email List</h2>
+        <p><strong>Number of Members:</strong> <span x-text="parsedData.length"></span></p>
+        <button @click="exportToCsv">Export to CSV</button>
+        <table>
+            <thead>
+                <tr>
+                    <th>Display Name</th>
+                    <th>Email</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="member in paginatedData" :key="member.email">
+                    <tr>
+                        <td x-text="member.displayName"></td>
+                        <td x-text="member.email"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+        <div>
+            <button @click="prevPage" :disabled="currentPage === 1" class="btn-inline">Previous</button>
+            <span x-text="`Page ${currentPage} of ${totalPages}`"></span>
+            <button @click="nextPage" :disabled="currentPage === totalPages" class="btn-inline">Next</button>
+        </div>
+        <h2>Exported Emails</h2>
+        <textarea x-model="exportedEmails" readonly class="big-textarea"></textarea>
+    </div>
+
+    <script>
+        function teamsParser() {
+            return {
+                teamLink: '',
+                jsonInput: '',
+                graphApiUrl: '',
+                parsedData: [],
+                showInstructions: {
+                    step1: false,
+                    step2: false
+                },
+                currentPage: 1,
+                itemsPerPage: 10,
+                exportedEmails: '',
+
+                toggleInstructions(step) {
+                    this.showInstructions[step] = !this.showInstructions[step];
+                },
+
+                parseTeamLink() {
+                    const groupIdMatch = this.teamLink.match(/groupId=([^&]+)/);
+                    if (groupIdMatch && groupIdMatch[1]) {
+                        const groupId = groupIdMatch[1];
+                        this.graphApiUrl = `https://graph.microsoft.com/beta/teams/${groupId}/members?$top=999`;
+                    } else {
+                        alert('Unable to extract Group ID from the provided link.');
+                    }
+                },
+
+                parseJson() {
+                    try {
+                        const data = JSON.parse(this.jsonInput);
+                        if (data.value && Array.isArray(data.value)) {
+                            this.parsedData = data.value.map(member => ({
+                                displayName: member.displayName,
+                                email: member.email
+                            }));
+                            // Sort the parsedData array by displayName
+                            this.parsedData.sort((a, b) => a.displayName.localeCompare(b.displayName));
+                            this.updateExportedEmails();
+                        } else {
+                            throw new Error('Invalid JSON structure. Expected "value" array.');
+                        }
+                    } catch (error) {
+                        alert('Error parsing JSON: ' + error.message);
+                    }
+                },
+
+                exportToCsv() {
+                    // Create CSV content
+                    const headers = ['Display Name', 'Email'];
+                    const csvContent = [
+                        headers.join(','),
+                        ...this.parsedData.map(member => 
+                            `"${member.displayName}","${member.email}"`
+                        )
+                    ].join('\n');
+
+                    // Create blob and download link
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    if (navigator.msSaveBlob) { // IE 10+
+                        navigator.msSaveBlob(blob, 'team_members.csv');
+                    } else {
+                        link.href = URL.createObjectURL(blob);
+                        link.download = 'team_members.csv';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
+                },
+
+                get paginatedData() {
+                    const start = (this.currentPage - 1) * this.itemsPerPage;
+                    const end = start + this.itemsPerPage;
+                    return this.parsedData.slice(start, end);
+                },
+
+                get totalPages() {
+                    return Math.ceil(this.parsedData.length / this.itemsPerPage);
+                },
+
+                prevPage() {
+                    if (this.currentPage > 1) {
+                        this.currentPage--;
+                    }
+                },
+
+                nextPage() {
+                    if (this.currentPage < this.totalPages) {
+                        this.currentPage++;
+                    }
+                },
+
+                updateExportedEmails() {
+                    this.exportedEmails = this.parsedData.map(member => 
+                        `${member.displayName} <${member.email}>`
+                    ).join('; ');
+                }
+            };
+        }
+    </script>
+</body>
+</html>
