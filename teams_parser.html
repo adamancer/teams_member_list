@@ -37,9 +37,13 @@
         </div>
         <textarea x-model="teamLink" placeholder="Paste Microsoft Teams link here"></textarea>
         <button @click="parseTeamLink">Parse Team Link</button>
-        <div x-show="graphApiUrl">
-            <h3>Graph API URL:</h3>
-            <p x-text="graphApiUrl"></p>
+        <div x-show="graphApiTeamUrl">
+            <h3>Graph API Team URL:</h3>
+            <p x-text="graphApiTeamUrl"></p>
+        </div>
+		<div x-show="graphApiChannelUrl">
+			<h3>Graph API Channel URL:</h3>
+            <p x-text="graphApiChannelUrl"></p>
         </div>
     </div>
 
@@ -92,7 +96,8 @@
             return {
                 teamLink: '',
                 jsonInput: '',
-                graphApiUrl: '',
+                graphApiTeamUrl: '',
+				graphApiChannelUrl: '',
                 parsedData: [],
                 showInstructions: {
                     step1: false,
@@ -107,10 +112,16 @@
                 },
 
                 parseTeamLink() {
+					const pat = new RegExp("/channel/(.*?\.tacv2)");
                     const groupIdMatch = this.teamLink.match(/groupId=([^&]+)/);
                     if (groupIdMatch && groupIdMatch[1]) {
-                        const groupId = groupIdMatch[1];
-                        this.graphApiUrl = `https://graph.microsoft.com/beta/teams/${groupId}/members?$top=999`;
+						const groupId = groupIdMatch[1];
+						const channelIdMatch = this.teamLink.match(pat);
+						if (channelIdMatch && channelIdMatch[1]) {
+							const channelId = channelIdMatch[1];
+							this.graphApiChannelUrl = `https://graph.microsoft.com/beta/teams/${groupId}/channels/${channelId}/members?$top=999`;
+						}
+						this.graphApiTeamUrl = `https://graph.microsoft.com/beta/teams/${groupId}/members?$top=999`;
                     } else {
                         alert('Unable to extract Group ID from the provided link.');
                     }
@@ -183,7 +194,7 @@
 
                 updateExportedEmails() {
                     this.exportedEmails = this.parsedData.map(member => 
-                        `${member.displayName} <${member.email}>`
+                        `${member.email}`
                     ).join('; ');
                 }
             };
